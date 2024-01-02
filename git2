@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Common git aliasing - recommend hub installed"""
+
+import argparse
+# import configparser
+# import json
+import subprocess
+from typing import TypedDict
+
+# from pathlib import Path
+
+
+class CLIArgs (TypedDict):
+    command: str
+    subcommand: str
+    git_alias: str
+    subcommand_args: str
+
+
+def runcmd(arg_arr: list) -> str:
+    print(" ".join(arg_arr))
+    with subprocess.Popen(
+        arg_arr,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as data:
+        response = data.communicate()
+        if data.returncode > 0:
+            print(response[0].decode("utf-8"), response[1].decode("utf-8"))
+            exit(data.returncode)
+        return_data = response[0].decode("utf-8")
+        print(return_data)
+        return return_data
+
+
+def preview(args: CLIArgs) -> int:
+    runcmd([args['git_alias'], "diff"])
+    return 0
+
+
+def revert(args: CLIArgs) -> int:
+    if args['subcommand'] == "" or args['subcommand'] is None:
+        print("revert requires files to target")
+        return 1
+    runcmd([args['git_alias'], "pull", "--all"])
+    match args['subcommand_args']:
+        case 'master':
+            runcmd([args['git_alias'], "restore", "--source", "master"])
+        case _:
+            runcmd([args['git_alias'], "reset", "HEAD", args['subcommand']])
+            runcmd([args['git_alias'], "checkout", "--", args['subcommand']])
+    return 0
+
+
+def checkout(args: CLIArgs) -> int:
+    if args['subcommand'] == "" or args['subcommand'] is None:
+        print("a branch name is required")
+        return 1
+    runcmd([args['git_alias'], "pull", "--all"])
+    runcmd([args['git_alias'], "checkout", args['subcommand']])
+    return 0
+
+
+def merge(args: CLIArgs) -> int:
+    if args['subcommand'] == "" or args['subcommand'] is None:
+        print("setting default merge target: origin/master")
+        args['subcommand'] = "master"
+    if not args['subcommand'].startswith("origin/"):
+        args['subcommand'] = "origin/" + args['subcommand']
+    runcmd([args['git_alias'], "pull"])
+    runcmd([args['git_alias'], "pull", "origin", "master"])
+    runcmd([args['git_alias'], "merge", args['subcommand']])
+    return 0
+
+
+def amerge(args: CLIArgs) -> int:
+    runcmd([args['git_alias'], "merge", "--abort"])
+    return 0
+
+
+def push(args: CLIArgs) -> int:
+    if args['subcommand'] == "" or args['subcommand'] is None:
+        args['subcommand'] = input("commit name: ")
+    runcmd([args['git_alias'], "pull"])
+    runcmd([args['git_alias'], "commit", "-m", args['subcommand']])
+    runcmd([args['git_alias'], "push"])
+    return 0
+
+
+def apush(args: CLIArgs) -> int:
+    if args['subcommand'] == "" or args['subcommand'] is None:
+        args['subcommand'] = input("commit name: ")
+    runcmd([args['git_alias'], "pull"])
+    runcmd([args['git_alias'], "add", "-A"])
+    cont = input("confirm files? (y/n): ")
+    if cont not in ["y", "Y", "yes", "YES"]:
+        runcmd([args['git_alias'], "reset"])
+        return 0
+    runcmd([args['git_alias'], "commit", "-m", args['subcommand']])
+    runcmd([args['git_alias'], "push"])
+    return 0
+
+
+def gdel(args: CLIArgs) -> int:
+    if args['subcommand'] == "" or args['subcommand'] is None:
+        print("must specify either a branch or commit to delete")
+        return 1
+    if args['subcommand_args'] == "" or args['subcommand_args'] is None:
+        print("must specify the count of commits or branch name to delete")
+        return 2
+    match args['subcommand']:
+        case "branch":
+            if args['subcommand_args'] == "master" or \
+                    args['subcommand_args'] == "main":
+                print("cannot delete protected branch")
+                return 3
+            runcmd([args['git_alias'], "checkout", "master"])
+            runcmd([args['git_alias'],
+                    "branch", "-d", args['subcommand_args']])
+            runcmd([args['git_alias'], "push", "origin",
+                   "--delete", args['subcommand_args']])
+
+        case "commit" | "commits":
+            count = int(args['subcommand_args'])
+            if count < 1:
+                print("invalid commit count for deletion")
+                return 4
+            runcmd([args['git_alias'], "reset", "--hard", "HEAD~1"])
+            runcmd([args['git_alias'], "push", "origin", "HEAD", "--force"])
+
+        case _:
+            print("invalid resource for deletion")
+            return 5
+    return 0
+
+
+def gnew(args: CLIArgs) -> int:
+    if args['subcommand'] == "" or args['subcommand'] is None:
+        print("new branch needs a name, exiting")
+        return 1
+    runcmd([args['git_alias'], "pull", "origin", "master"])
+    # runcmd([args['git_alias'], "stash", "save"])
+    runcmd([args['git_alias'], "checkout", "-b", args['subcommand']])
+    runcmd([args['git_alias'], "push",
+            "--set-upstream", "origin", args['subcommand']])
+    return 0
+
+
+def main() -> int:
+    """git2 entry point"""
+    parser = argparse.ArgumentParser(
+        prog="git2", description="Safer git (hub) aliased commands"
+    )
+    parser.add_argument(
+        "command",
+        help="supports: new_branch, hard_delete, \
+        preview, push, checkout, revert",
+    )
+    parser.add_argument("subcommand", nargs="?", default="")
+    parser.add_argument("subcommand_args", nargs="?", default="")
+    parser.add_argument("-g", "--git-alias", default="hub")
+
+    bargs = parser.parse_args()
+    args: CLIArgs = vars(bargs)  # type: ignore
+    print(args)
+    match args['command']:
+        case "new_branch":
+            return gnew(args)
+        case "preview":
+            return preview(args)
+        case "push_all":
+            return apush(args)
+        case "push":
+            return push(args)
+        case "merge":
+            return merge(args)
+        case "checkout":
+            return checkout(args)
+        case "revert":
+            return revert(args)
+        case "hard_delete":
+            return gdel(args)
+        case "abort_merge":
+            return amerge(args)
+        case _:
+            print("unknown command, \
+            allowed commands: new_branch, push_all, push, merge, checkout, \
+            revert, hard_delete, abort_merge")
+            return 1
+
+
+if __name__ == "__main__":
+    exit(main())
