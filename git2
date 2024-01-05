@@ -92,6 +92,7 @@ def apush(args: CLIArgs) -> int:
         args['subcommand'] = input("commit name: ")
     runcmd([args['git_alias'], "pull"])
     runcmd([args['git_alias'], "add", "-A"])
+    runcmd([args['git_alias'], "diff", "--staged", "--name-only"])
     cont = input("confirm files? (y/n): ")
     if cont not in ["y", "Y", "yes", "YES"]:
         runcmd([args['git_alias'], "reset"])
